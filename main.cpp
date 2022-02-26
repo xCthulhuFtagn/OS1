@@ -20,17 +20,17 @@ int main(int argc, char* argv[]){
     char options;
     char *buf;
     if (getcwd(buf, 0) == NULL) {
-        printf("Pososix)))");
+        printf("Current working directory is unavailable");
         return 0;
     }
     if (argc < 3) {
-        printf("Sosi Pososix\n");
+        printf("Not enough arguments!\n");
         return 0;
     }
     if (argv[1] == "-create") options = 1;
     else if (argv[1] == "-extract") options = 0;
     else {
-        printf("Pososix)))\n");
+        printf("Wrong command parameters!\n");
         return 0;
     }
     int status = mkdir(argv[2], S_IFDIR);
