@@ -40,10 +40,10 @@ int file_copy(char * source, char * dest) {
 
 int main(int argc, char* argv[]){
     bool create_flag;
-    char *buf;
+    char cwd[PATH_MAX] = "";
     DIR* arch;
     dirent* file;
-    if (getcwd(buf, 0) == NULL) {
+    if (getcwd(cwd, PATH_MAX) == NULL) {
         printf("Current working directory is unavailable\n");
         return -1;
     }
@@ -51,25 +51,32 @@ int main(int argc, char* argv[]){
         printf("Not enough arguments\n");
         return -1;
     }
-    if (argv[1] == "-create") create_flag = 1;
-    else if (argv[1] == "-extract") create_flag = 0;
+    if (strcmp(argv[1], "-create") == 0) create_flag = true;
+    else if (strcmp(argv[1], "-extract") == 0) create_flag = false;
     else {
         printf("Wrong command parameters\n");
         return -1;
     }
+    printf("trying to create...\n");
     if(create_flag){
-        if(mkdir(argv[2], S_IFDIR) < 0){
-            printf("Could not create archive directory\n");
+        char tmp[PATH_MAX]; strcpy(tmp, cwd); strcat(tmp, "/");
+        //creating ./
+        int i;
+        if((i = mkdir(strcat(tmp, argv[2]), S_IRWXO || S_IRWXG || S_IRWXU)) < 0){
+            //Read + Write + Execute: S_IRWXU (User), S_IRWXG (Group), S_IRWXO (Others)
+            perror("Could not create archive directory");
             return -1;
         }
+        printf("created (%d)\n", i);
         if (strlen(argv[2]) < 2) {
             printf("Wrong output parameter\n");
             return -1;
         }
         if ((arch = opendir(argv[2])) == NULL) {
-            printf("Cannot create output dir\n");
+            perror("Cannot open output dir");
             return -1;
         }
+        printf("hey!\n");
         int file_desc = open(strcat(strcat("./", argv[2]),"/log"), O_RDWR || O_APPEND || O_CREAT, S_IRWXU);
         //read - write || write to end || create it if needed, write/read/execute
         // date + ls
@@ -106,7 +113,7 @@ int main(int argc, char* argv[]){
                     write(file_desc, file->d_name, strlen(file->d_name));
                     write(file_desc, "\" size: ", 9);
                     fstat(file_desc, &st);
-                    sprintf(buf, "%d", st.st_size);
+                    sprintf(buf, "%ld", st.st_size);
                     write(file_desc, buf, strlen(buf));
                     write(file_desc, "\n", 2);
                 }
@@ -121,7 +128,7 @@ int main(int argc, char* argv[]){
                 //file_copy(./file, ./arch/file)
                 bool found = false;
                 for(size_t i = 4; i + 1 < argc; ++i){
-                    if(strcmp(file->d_name, argv[i])){
+                    if(strcmp(file->d_name, argv[i]) == 0){
                         found = true;
                         break;
                     }
@@ -132,7 +139,7 @@ int main(int argc, char* argv[]){
                     write(file_desc, file->d_name, strlen(file->d_name));
                     write(file_desc, "\" size: ", 9);
                     fstat(file_desc, &st);
-                    sprintf(buf, "%d", st.st_size);
+                    sprintf(buf, "%ld", st.st_size);
                     write(file_desc, buf, strlen(buf));
                     write(file_desc, "\n", 2);
                 }
