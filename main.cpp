@@ -14,6 +14,7 @@
 using namespace std;
 
 // tar options archive.tar [file1 file2 file3 ...] | dir
+//-d = directories / -f = files
 // options -- -create -extract
 
 int file_copy(char * source, char * dest) {
@@ -38,7 +39,7 @@ int file_copy(char * source, char * dest) {
 }
 
 int main(int argc, char* argv[]){
-    char options;
+    bool create_flag;
     char *buf;
     DIR* arch;
     dirent* file;
@@ -50,62 +51,99 @@ int main(int argc, char* argv[]){
         printf("Not enough arguments\n");
         return -1;
     }
-    if (argv[1] == "-create") options = 1;
-    else if (argv[1] == "-extract") options = 0;
+    if (argv[1] == "-create") create_flag = 1;
+    else if (argv[1] == "-extract") create_flag = 0;
     else {
         printf("Wrong command parameters\n");
         return -1;
     }
-    if(mkdir(argv[2], S_IFDIR) < 0){
-        printf("Could not create archive directory\n");
-        return -1;
-    }
-    if (strlen(argv[2]) < 2) {
-        printf("Wrong output parameter\n");
-        return -1;
-    }
-    if ((arch = opendir(argv[2])) == NULL) {
-        printf("Cannot create output dir\n");
-        return -1;
-    }
-    int file_desc = open(strcat(strcat("./", argv[2]),"/log"), O_RDWR || O_APPEND || O_CREAT, S_IRWXU);
-    //read - write || write to end || create it if needed, write/read/execute
-    // date + ls
-    time_t t = time(NULL);
-    struct tm d = *localtime(&t);
-    char buf[20];
-    write(file_desc, "Date and hour : ", 17);
-    sprintf(buf, "%d", d.tm_mday);
-    write(file_desc, buf, strlen(buf));
-    write(file_desc, "/", 1);   
-    sprintf(buf, "%d", d.tm_mon);
-    write(file_desc, buf, strlen(buf));
-    write(file_desc, "/", 1);
-    sprintf(buf, "%d", d.tm_year);
-    write(file_desc, buf, strlen(buf));
-    write(file_desc, " ", 1);
-    sprintf(buf, "%d", d.tm_hour);
-    write(file_desc, buf, strlen(buf));
-    write(file_desc, ":", 1);
-    sprintf(buf, "%d", d.tm_min);
-    write(file_desc, buf, strlen(buf));
-    write(file_desc, ":", 1);
-    sprintf(buf, "%d", d.tm_sec);
-    write(file_desc, buf, strlen(buf));
-    write(file_desc, "\n", 2);
-    write(file_desc, "Archived files:\n", 28);
-    struct stat st;
-    while ((file = readdir(arch)) != NULL){
-        //file_copy(./file, ./arch/file)
-        if (file_copy(strcat("./", file->d_name), strcat(strcat(strcat("./", argv[2]), "/"), file->d_name)) == 0){
-            //if the copy is successfull -> print into log
-            write(file_desc, "\"", 1);
-            write(file_desc, file->d_name, strlen(file->d_name));
-            write(file_desc, "\" size: ", 9);
-            fstat(file_desc, &st);
-            sprintf(buf, "%d", st.st_size);
-            write(file_desc, buf, strlen(buf));
-            write(file_desc, "\n", 2);
+    if(create_flag){
+        if(mkdir(argv[2], S_IFDIR) < 0){
+            printf("Could not create archive directory\n");
+            return -1;
+        }
+        if (strlen(argv[2]) < 2) {
+            printf("Wrong output parameter\n");
+            return -1;
+        }
+        if ((arch = opendir(argv[2])) == NULL) {
+            printf("Cannot create output dir\n");
+            return -1;
+        }
+        int file_desc = open(strcat(strcat("./", argv[2]),"/log"), O_RDWR || O_APPEND || O_CREAT, S_IRWXU);
+        //read - write || write to end || create it if needed, write/read/execute
+        // date + ls
+        time_t t = time(NULL);
+        struct tm d = *localtime(&t);
+        char buf[20];
+        write(file_desc, "Date and hour : ", 17);
+        sprintf(buf, "%d", d.tm_mday);
+        write(file_desc, buf, strlen(buf));
+        write(file_desc, "/", 1);   
+        sprintf(buf, "%d", d.tm_mon);
+        write(file_desc, buf, strlen(buf));
+        write(file_desc, "/", 1);
+        sprintf(buf, "%d", d.tm_year);
+        write(file_desc, buf, strlen(buf));
+        write(file_desc, " ", 1);
+        sprintf(buf, "%d", d.tm_hour);
+        write(file_desc, buf, strlen(buf));
+        write(file_desc, ":", 1);
+        sprintf(buf, "%d", d.tm_min);
+        write(file_desc, buf, strlen(buf));
+        write(file_desc, ":", 1);
+        sprintf(buf, "%d", d.tm_sec);
+        write(file_desc, buf, strlen(buf));
+        write(file_desc, "\n", 2);
+        if(argv[3] == "-d"){ // archive whole directory
+            write(file_desc, "Archived whole directory. Those files were copied:\n", 28);
+            struct stat st;
+            while ((file = readdir(arch)) != NULL){
+                //file_copy(./file, ./arch/file)
+                if (file_copy(strcat("./", file->d_name), strcat(strcat(strcat("./", argv[2]), "/"), file->d_name)) == 0){
+                    //if the copy is successfull -> print into log
+                    write(file_desc, "\"", 1);
+                    write(file_desc, file->d_name, strlen(file->d_name));
+                    write(file_desc, "\" size: ", 9);
+                    fstat(file_desc, &st);
+                    sprintf(buf, "%d", st.st_size);
+                    write(file_desc, buf, strlen(buf));
+                    write(file_desc, "\n", 2);
+                }
+                else{
+                    printf("%s could not not be copied\n", file->d_name);
+                }
+            }
+        }
+        else if(argv[3] == "-f"){
+            struct stat st;
+            while ((file = readdir(arch)) != NULL){
+                //file_copy(./file, ./arch/file)
+                bool found = false;
+                for(size_t i = 4; i + 1 < argc; ++i){
+                    if(strcmp(file->d_name, argv[i])){
+                        found = true;
+                        break;
+                    }
+                }
+                if (found && file_copy(strcat("./", file->d_name), strcat(strcat(strcat("./", argv[2]), "/"), file->d_name)) == 0){
+                    //if file is in the list => if the copy is successfull -> print into log
+                    write(file_desc, "\"", 1);
+                    write(file_desc, file->d_name, strlen(file->d_name));
+                    write(file_desc, "\" size: ", 9);
+                    fstat(file_desc, &st);
+                    sprintf(buf, "%d", st.st_size);
+                    write(file_desc, buf, strlen(buf));
+                    write(file_desc, "\n", 2);
+                }
+                else{
+                    printf("%s could not not be copied\n", file->d_name);
+                }
+            }
+        }
+        else{
+            printf("Wrong parameter for input\n");
+            return -1;
         }
     }
 }
