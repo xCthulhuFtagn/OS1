@@ -17,7 +17,6 @@
 int file_copy(char * source, char * dest) {
     //maybe "/"'s in adress should be doubled, I don't know
 	int src_desc, dst_desc, in, out;
-	char buf[8192];
 	if ((src_desc = open(source, O_RDONLY)) == -1) {
 		return -1;
 	}
@@ -28,20 +27,20 @@ int file_copy(char * source, char * dest) {
     char buf[BUFSIZ];
     bool fail = false;
     ssize_t read_status, write_status;
-    while((read_status = read(src_desc, buf, BUFSIZ)) == 0){
-        if((write_status = write(dst_desc, buf, BUFSIZ)) == -1){
+    while ((read_status = read(src_desc, buf, BUFSIZ)) == 0) {
+        if ((write_status = write(dst_desc, buf, BUFSIZ)) == -1) {
             fail = true;
             break;
         }
     }
-    if(read_status == -1){
+    if (read_status == -1) {
         fail = true;
     }
 	
 	close(src_desc);
 	close(dst_desc);
 
-	if(fail) {
+	if (fail) {
         perror("Copying error occured");
         return -1;
     }
@@ -49,14 +48,20 @@ int file_copy(char * source, char * dest) {
 }
 
 //recursive for first realisation
-void dir_copy(char* from_ch, char* to_ch){
+void dir_copy(char* from_ch, char* to_ch, int log_desc){
     struct stat st;
     dirent *obj;
     DIR *origin, *subdir;
     char buf[20];
-    if((origin = opendir(from_ch)) == NULL || chdir(to_ch) < 0){
+    if ((origin = opendir(from_ch)) == NULL) {
         char buf[PATH_MAX + 26] = "Could not open directory ";
         strcat(buf, from_ch);
+        perror(buf);
+        return;
+    }
+    if (chdir(to_ch) < 0) {
+        char buf[PATH_MAX + 26] = "Could not open directory ";
+        strcat(buf, to_ch);
         perror(buf);
         return;
     }
@@ -65,30 +70,30 @@ void dir_copy(char* from_ch, char* to_ch){
         гуляем при помощи chdir по архивным файлам, чтобы можно было без пота создавать новые объекты
         гуляем при помощи opendir и ПОЛНЫХ адресов по архивируемым директориям
     */
-    while ((obj = readdir(origin)) != NULL){
+    while ((obj = readdir(origin)) != NULL) {
         lstat(obj->d_name, &st);
-        if(S_ISDIR(st.st_mode)){
-            if(strcmp(obj->d_name, ".") || strcmp(obj->d_name, "..")) {
+        if (S_ISDIR(st.st_mode)) {
+            if (strcmp(obj->d_name, ".") || strcmp(obj->d_name, "..")) {
                 //need 2 copy them? yes!
-            } else{
+            } else {
                 // found directory
-                if(mkdir(obj->d_name, S_IRWXO || S_IRWXG || S_IRWXU) < 0){
+                if (mkdir(obj->d_name, S_IRWXO || S_IRWXG || S_IRWXU) < 0) {
                     char buf[PATH_MAX + 19] = "Could not copy ";
                     strcat(buf, obj->d_name);
                     strcat(buf, " dir");
                     perror(buf);
                 }
-                else{
+                else {
                     char from_subdir[PATH_MAX];
                     strcpy(from_subdir, from_ch);
                     strcat(from_subdir, "/");
                     strcat(from_subdir, obj->d_name);
-                    dir_copy(from_subdir, obj->d_name);   
+                    dir_copy(from_subdir, obj->d_name, log_desc);   
                 }             
             }
-        } else{
+        } else {
             //copy file
-            if (file_copy(strcat(strcat(from_ch, "/"), obj->d_name), obj->d_name) == 0){
+            if (file_copy(strcat(strcat(from_ch, "/"), obj->d_name), obj->d_name) == 0) {
                 //if the copy is successfull -> print into log
                 write(log_desc, "File \"", 1);
                 write(log_desc, obj->d_name, strlen(obj->d_name));
@@ -98,7 +103,7 @@ void dir_copy(char* from_ch, char* to_ch){
                 write(log_desc, buf, strlen(buf));
                 write(log_desc, "\n", 2);
             }
-            else{
+            else {
                 char buf[PATH_MAX + 30] = "File ";
                 strcat(buf, obj->d_name);
                 strcat(buf, " could not not be copied");
@@ -110,42 +115,39 @@ void dir_copy(char* from_ch, char* to_ch){
     closedir(origin);
 }
 
-int log_desc;
-
 int main(int argc, char* argv[]){
     bool create_flag;
-    char path[PATH_MAX] = "";
+    char *path;
     DIR *from;
-    if (getcwd(path, PATH_MAX) == NULL) {
-        perror("Current working directory is unavailable\n");
+    if (getcwd(path, 0) == NULL) {
+        perror("Current working directory is unavailable");
         return -1;
     }
     if (argc < 3) {
-        perror("Not enough arguments\n");
+        perror("Not enough arguments");
         return -1;
     }
     if (strcmp(argv[1], "-create") == 0) create_flag = true;
     else if (strcmp(argv[1], "-extract") == 0) create_flag = false;
     else {
-        perror("Wrong command parameters\n");
+        perror("Wrong command parameters");
         return -1;
     }
-    if(create_flag){
+    if (create_flag) {
         //char tmp[PATH_MAX]; strcpy(tmp, path); strcat(tmp, "/");
         //creating ./
         int i;
         //need to check if it works without such bullshit as in comments
-        if((i = mkdir(argv[2]/*strcat(tmp, argv[2])*/, S_IRWXO || S_IRWXG || S_IRWXU)) < 0){
+        if ((i = mkdir(argv[2]/*strcat(tmp, argv[2])*/, S_IRWXO || S_IRWXG || S_IRWXU)) < 0) {
             //Read + Write + Execute: S_IRWXU (User), S_IRWXG (Group), S_IRWXO (Others)
-            perror("Could not create archive directory\n");
+            perror("Could not create archive directory");
             return -1;
         }
         if (strlen(argv[2]) < 2) {
-            perror("Wrong output parameter\n");
+            perror("Wrong output parameter");
             return -1;
         }
-        chdir(strcat("/", argv[2]));
-        log_desc = open("log.txt", O_RDWR || O_APPEND || O_CREAT, S_IRWXU);
+        int log_desc = open("log.txt", O_RDWR || O_APPEND || O_CREAT, S_IRWXU);
         //read - write || write to end || create it if needed, write/read/execute
         // date + ls
         time_t t = time(NULL);
@@ -171,18 +173,20 @@ int main(int argc, char* argv[]){
         write(log_desc, buf, strlen(buf));
         write(log_desc, "\n", 2);
         chdir("..");
-        if(argv[3] == "-d"){ // archive whole directory
+        if (strcmp(argv[3], "-d") == 0) { // archive whole directory
             strcat(path, "/");
             strcat(path, argv[4]);
             //inputting full adress of input
-            dir_copy(path, argv[2]);
+            dir_copy(path, argv[2], log_desc);
         }
-        else if(argv[3] == "-f"){
+        else if (strcmp(argv[3], "-f") == 0) {
             //list of files
         }
-        else{
-            perror("Wrong parameter for input\n");
+        else {
+            perror("Wrong parameter for input");
             return -1;
         }
     }
+    free(path);
+    return 0;
 }
