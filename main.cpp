@@ -77,7 +77,7 @@ void dir_copy(char* from_ch, char* to_ch, int log_desc){
                 //need 2 copy them? yes!
             } else {
                 // found directory
-                if (mkdir(obj->d_name, S_IRWXO || S_IRWXG || S_IRWXU) < 0) {
+                if (mkdir(obj->d_name, O_RDWR || O_APPEND || O_CREAT || S_IRWXU) < 0) {
                     char buf[PATH_MAX + 19] = "Could not copy ";
                     strcat(buf, obj->d_name);
                     strcat(buf, " dir");
@@ -117,9 +117,9 @@ void dir_copy(char* from_ch, char* to_ch, int log_desc){
 
 int main(int argc, char* argv[]){
     bool create_flag;
-    char *path;
+    char path[PATH_MAX];
     DIR *from;
-    if (getcwd(path, 0) == NULL) {
+    if (getcwd(path, PATH_MAX) == NULL) {
         perror("Current working directory is unavailable");
         return -1;
     }
@@ -138,7 +138,7 @@ int main(int argc, char* argv[]){
         //creating ./
         int i;
         //need to check if it works without such bullshit as in comments
-        if ((i = mkdir(argv[2]/*strcat(tmp, argv[2])*/, S_IRWXO || S_IRWXG || S_IRWXU)) < 0) {
+        if ((i = mkdir(argv[2]/*strcat(tmp, argv[2])*/, S_IRWXU | S_IRWXG | S_IROTH | S_IXOTH)) < 0) {
             //Read + Write + Execute: S_IRWXU (User), S_IRWXG (Group), S_IRWXO (Others)
             perror("Could not create archive directory");
             return -1;
@@ -147,6 +147,7 @@ int main(int argc, char* argv[]){
             perror("Wrong output parameter");
             return -1;
         }
+        if(chdir(argv[2]) < 0) perror("can't change dir");
         int log_desc = open("log.txt", O_RDWR || O_APPEND || O_CREAT, S_IRWXU);
         //read - write || write to end || create it if needed, write/read/execute
         // date + ls
@@ -174,9 +175,11 @@ int main(int argc, char* argv[]){
         write(log_desc, "\n", 2);
         chdir("..");
         if (strcmp(argv[3], "-d") == 0) { // archive whole directory
+            //here was segmentation fault (fixed)
             strcat(path, "/");
             strcat(path, argv[4]);
             //inputting full adress of input
+            printf("call of dir_copy\n");
             dir_copy(path, argv[2], log_desc);
         }
         else if (strcmp(argv[3], "-f") == 0) {
