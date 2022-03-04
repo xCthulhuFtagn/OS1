@@ -15,28 +15,32 @@
 // options:  -create / -extract
 
 int file_copy(char * source, char * dest) {
-    //maybe "/"'s in adress should be doubled, I don't know
 	int src_desc, dst_desc, in, out;
 	if ((src_desc = open(source, O_RDONLY)) == -1) {
+        char buf[PATH_MAX + 29] = "Could not open source file ";
+        strcat(buf, source);
+        strcat(buf, "\n");
+        perror(buf);
 		return -1;
 	}
-	if ((dst_desc = open(dest, O_WRONLY|O_CREAT|O_TRUNC, S_IRWXU)) == -1) {
+	if ((dst_desc = open(dest, O_WRONLY|O_CREAT|O_TRUNC , S_IRWXU)) == -1) {
 		close(src_desc);
+        char buf[PATH_MAX + 34] = "Could not open destination file ";
+        strcat(buf, source);
+        strcat(buf, "\n");
+        perror(buf);
 		return -1;
 	}
     char buf[BUFSIZ];
     bool fail = false;
     ssize_t read_status, write_status;
-    while ((read_status = read(src_desc, buf, BUFSIZ)) == 0) {
+    while ((read_status = read(src_desc, buf, BUFSIZ)) > 0) {
         if ((write_status = write(dst_desc, buf, BUFSIZ)) == -1) {
             fail = true;
             break;
         }
     }
-    if (read_status == -1) {
-        fail = true;
-    }
-	
+    if (read_status == -1) fail = true;
 	close(src_desc);
 	close(dst_desc);
 
@@ -47,6 +51,13 @@ int file_copy(char * source, char * dest) {
     else return 0;
 }
 
+void CutAdress(char* adr){
+    char* slash = strrchr(adr, '/');
+    if (slash && slash + 1 != adr + strlen(adr)) {
+        *(slash + 1) = '\0';
+    }
+}
+
 //recursive for first realisation
 void dir_copy(char* from_ch, char* to_ch, int log_desc){
     struct stat st;
@@ -54,13 +65,13 @@ void dir_copy(char* from_ch, char* to_ch, int log_desc){
     DIR *origin, *subdir;
     char buf[20];
     if ((origin = opendir(from_ch)) == NULL) {
-        char buf[PATH_MAX + 26] = "Could not open directory ";
+        char buf[PATH_MAX + 26] = "Could not open source directory ";
         strcat(buf, from_ch);
         perror(buf);
         return;
     }
     if (chdir(to_ch) < 0) {
-        char buf[PATH_MAX + 26] = "Could not open directory ";
+        char buf[PATH_MAX + 26] = "Could chdir to destination directory ";
         strcat(buf, to_ch);
         perror(buf);
         return;
@@ -70,30 +81,28 @@ void dir_copy(char* from_ch, char* to_ch, int log_desc){
         гуляем при помощи chdir по архивным файлам, чтобы можно было без пота создавать новые объекты
         гуляем при помощи opendir и ПОЛНЫХ адресов по архивируемым директориям
     */
+    strcat(from_ch, "/");
     while ((obj = readdir(origin)) != NULL) {
-        lstat(obj->d_name, &st);
+        strcat(from_ch, obj->d_name);
+        if(lstat(from_ch, &st) == -1) perror("lstat broken");
         if (S_ISDIR(st.st_mode)) {
-            if (strcmp(obj->d_name, ".") || strcmp(obj->d_name, "..")) {
-                //need 2 copy them? yes!
-            } else {
+            if (strcmp(obj->d_name, ".") != 0 && strcmp(obj->d_name, "..") != 0) {
                 // found directory
-                if (mkdir(obj->d_name, O_RDWR || O_APPEND || O_CREAT || S_IRWXU) < 0) {
+                if (mkdir(obj->d_name, S_IRWXU | S_IRWXG | S_IROTH | S_IXOTH) < 0) {
+                    //https://techoverflow.net/2013/04/05/how-to-use-mkdir-from-sysstat-h/
                     char buf[PATH_MAX + 19] = "Could not copy ";
                     strcat(buf, obj->d_name);
                     strcat(buf, " dir");
                     perror(buf);
                 }
                 else {
-                    char from_subdir[PATH_MAX];
-                    strcpy(from_subdir, from_ch);
-                    strcat(from_subdir, "/");
-                    strcat(from_subdir, obj->d_name);
-                    dir_copy(from_subdir, obj->d_name, log_desc);   
-                }             
+                   dir_copy(from_ch, obj->d_name, log_desc);
+                }
             }
-        } else {
+        }
+        else {
             //copy file
-            if (file_copy(strcat(strcat(from_ch, "/"), obj->d_name), obj->d_name) == 0) {
+            if (file_copy(from_ch, obj->d_name) == 0) {
                 //if the copy is successfull -> print into log
                 write(log_desc, "File \"", 1);
                 write(log_desc, obj->d_name, strlen(obj->d_name));
@@ -110,7 +119,10 @@ void dir_copy(char* from_ch, char* to_ch, int log_desc){
                 perror(buf);
             }
         }
+        CutAdress(from_ch);
     }
+    from_ch[strlen(from_ch)-1] = '\0';
+    CutAdress(from_ch);
     chdir("..");
     closedir(origin);
 }
@@ -127,27 +139,14 @@ int main(int argc, char* argv[]){
         perror("Not enough arguments");
         return -1;
     }
-    if (strcmp(argv[1], "-create") == 0) create_flag = true;
-    else if (strcmp(argv[1], "-extract") == 0) create_flag = false;
-    else {
-        perror("Wrong command parameters");
-        return -1;
-    }
-    if (create_flag) {
-        //char tmp[PATH_MAX]; strcpy(tmp, path); strcat(tmp, "/");
-        //creating ./
+    if (strcmp(argv[1], "-create") == 0) {
         int i;
-        //need to check if it works without such bullshit as in comments
-        if ((i = mkdir(argv[2]/*strcat(tmp, argv[2])*/, S_IRWXU | S_IRWXG | S_IROTH | S_IXOTH)) < 0) {
+        if ((i = mkdir(argv[2], S_IRWXU | S_IRWXG | S_IROTH | S_IXOTH)) < 0) {
             //Read + Write + Execute: S_IRWXU (User), S_IRWXG (Group), S_IRWXO (Others)
             perror("Could not create archive directory");
             return -1;
         }
-        if (strlen(argv[2]) < 2) {
-            perror("Wrong output parameter");
-            return -1;
-        }
-        if(chdir(argv[2]) < 0) perror("can't change dir");
+        if (chdir(argv[2]) < 0) perror("Can't change directory");
         int log_desc = open("log.txt", O_RDWR || O_APPEND || O_CREAT, S_IRWXU);
         //read - write || write to end || create it if needed, write/read/execute
         // date + ls
@@ -175,11 +174,9 @@ int main(int argc, char* argv[]){
         write(log_desc, "\n", 2);
         chdir("..");
         if (strcmp(argv[3], "-d") == 0) { // archive whole directory
-            //here was segmentation fault (fixed)
             strcat(path, "/");
             strcat(path, argv[4]);
             //inputting full adress of input
-            printf("call of dir_copy\n");
             dir_copy(path, argv[2], log_desc);
         }
         else if (strcmp(argv[3], "-f") == 0) {
@@ -190,6 +187,12 @@ int main(int argc, char* argv[]){
             return -1;
         }
     }
-    free(path);
+    else if (strcmp(argv[1], "-extract") == 0){
+
+    }
+    else{
+        perror("Wrong command parameters");
+        return -1;
+    }
     return 0;
 }
