@@ -6,26 +6,32 @@
 
 #include <fcntl.h>
 #include <sys/types.h>
-#include <sys/stat.h> 
+#include <sys/stat.h>
 #include <dirent.h>
 #include <unistd.h>
-//for files & dir operations
-// tar {options} archive.tar {sources} [file1 file2 file3 ...] | dir
-//sources: -d = directories / -f = files
-// options:  -create / -extract
 
-int file_copy(char * source, char * dest){
+// for files & dir operations
+// tar {options} archive.tar {sources} [file1 file2 file3 ...] | dir
+// sources: -d = directories / -f = files
+// options:  -pack / -unpack
+
+// struct {
+//     uint64_t freq[256];
+// } BRUH;
+
+int archive_desc;
+int log_desc;
+
+int file_pack(char * source, char lvl){
+    write(log_desc, "Packaging file ", 15);
+    write(log_desc, source, strlen(source));
+    write(log_desc, "...\n", 4);
+    write(archive_desc, &lvl, sizeof(lvl));
+    write(archive_desc, "f", 1);
+    write(archive_desc, source, strlen(source));
 	int src_desc, dst_desc, in, out;
 	if ((src_desc = open(source, O_RDONLY)) == -1) {
         char buf[PATH_MAX + 29] = "Could not open source file ";
-        strcat(buf, source);
-        strcat(buf, "\n");
-        perror(buf);
-		return -1;
-	}
-	if ((dst_desc = open(dest, O_WRONLY | O_CREAT | O_TRUNC , S_IRWXU)) == -1) {
-		close(src_desc);
-        char buf[PATH_MAX + 34] = "Could not open destination file ";
         strcat(buf, source);
         strcat(buf, "\n");
         perror(buf);
@@ -35,14 +41,13 @@ int file_copy(char * source, char * dest){
     char fail = 0;
     ssize_t read_status, write_status;
     while ((read_status = read(src_desc, buf, BUFSIZ)) > 0) {
-        if ((write_status = write(dst_desc, buf, BUFSIZ)) == -1) {
+        if ((write_status = write(archive_desc, buf, BUFSIZ)) == -1) {
             fail = 1;
             break;
         }
     }
     if (read_status == -1) fail = 1;
 	close(src_desc);
-	close(dst_desc);
 
 	if (fail) {
         perror("Copying error occured");
@@ -59,23 +64,23 @@ void CutAdress(char* adr){
 }
 
 //recursive for first realisation
-void dir_copy(char* from_ch, char* to_ch, int log_desc){
+int dir_pack(char* from_ch, char lvl){
     struct stat st;
     struct dirent *obj;
     DIR *origin, *subdir;
-    char buf[20];
+    char buf[PATH_MAX + 200];
+    write(log_desc, "Packaging directory ", 21);
+    write(log_desc, from_ch, strlen(from_ch));
+    write(log_desc, "...\n", 4);
     if ((origin = opendir(from_ch)) == NULL) {
-        char buf[PATH_MAX + 26] = "Could not open source directory ";
-        strcat(buf, from_ch);
-        perror(buf);
-        return;
+        char buf1[PATH_MAX + 26] = "Could not open source directory ";
+        strcat(buf1, from_ch);
+        perror(buf1);
+        return -1;
     }
-    if (chdir(to_ch) < 0) {
-        char buf[PATH_MAX + 26] = "Could chdir to destination directory ";
-        strcat(buf, to_ch);
-        perror(buf);
-        return;
-    }
+    write(archive_desc, &lvl, sizeof(lvl));
+    write(archive_desc, "d", 1);
+    write(archive_desc, from_ch, strlen(from_ch));
     /*
         логика:
         гуляем при помощи chdir по архивным файлам, чтобы можно было без пота создавать новые объекты
@@ -84,47 +89,47 @@ void dir_copy(char* from_ch, char* to_ch, int log_desc){
     strcat(from_ch, "/");
     while ((obj = readdir(origin)) != NULL) {
         strcat(from_ch, obj->d_name);
-        if(lstat(from_ch, &st) == -1) perror("lstat broken");
+        if (lstat(from_ch, &st) == -1) {
+            perror("lstat broke");
+            return -1;
+        }
+        char output[BUFSIZ] = "";
+        strnset(output, '\t', lvl);
         if (S_ISDIR(st.st_mode)) {
             if (strcmp(obj->d_name, ".") != 0 && strcmp(obj->d_name, "..") != 0) {
                 // found directory
-                if (mkdir(obj->d_name, S_IRWXU | S_IRWXG | S_IROTH | S_IXOTH) < 0) {
-                    //https://techoverflow.net/2013/04/05/how-to-use-mkdir-from-sysstat-h/
-                    char buf[PATH_MAX + 19] = "Could not copy ";
-                    strcat(buf, obj->d_name);
-                    strcat(buf, " dir");
-                    perror(buf);
-                }
-                else {
-                   dir_copy(from_ch, obj->d_name, log_desc);
+                strcat(output, "Dir ");
+                strcat(output, obj->d_name);
+                strcat(output, ": ");
+                if (dir_pack(from_ch, lvl + 1) == 0) {
+                    strcat(output, "SUCCESS\n");
+                } else {
+                    strcat(output, "FAIL\n");
                 }
             }
         }
         else {
             //copy file
-            if (file_copy(from_ch, obj->d_name) == 0) {
-                //if the copy is successfull -> print into log
-                write(log_desc, "File \"", 1);
-                write(log_desc, obj->d_name, strlen(obj->d_name));
-                write(log_desc, "\", size: ", 10);
-                fstat(log_desc, &st);
-                sprintf(buf, "%ld", st.st_size);
-                write(log_desc, buf, strlen(buf));
-                write(log_desc, "\n", 2);
-            }
-            else {
-                char buf[PATH_MAX + 30] = "File ";
-                strcat(buf, obj->d_name);
-                strcat(buf, " could not not be copied");
-                perror(buf);
+            strcat(output, "File ");
+            strcat(output, obj->d_name);
+            strcat(output, " (");
+            //mb %d
+            sprintf(output + strlen(output), "%ld", st.st_size);
+            strcat(output, "): ");
+            if (file_pack(from_ch, lvl + 1) == 0) {
+                strcat(output, "SUCCESS\n");
+            } else {
+                strcat(output, "FAIL\n");
             }
         }
+        write(log_desc, output, strlen(output));
         CutAdress(from_ch);
     }
     from_ch[strlen(from_ch)-1] = '\0';
     CutAdress(from_ch);
-    chdir("..");
+    //chdir("..");
     closedir(origin);
+    return 0;
 }
 
 int main(int argc, char* argv[]){
@@ -149,9 +154,14 @@ int main(int argc, char* argv[]){
         if (chdir(argv[2]) < 0) perror("Can't change directory");
         char bruh[PATH_MAX];
         strcpy(bruh, path);
-        int log_desc = open(strcat(bruh, "/log.txt"), O_RDWR | O_APPEND | O_CREAT | S_IRWXO);
+        log_desc = open(strcat(bruh, "/log.txt"), O_RDWR | O_APPEND | O_CREAT, S_IRWXO | S_IRWXG | S_IRWXU);
+        archive_desc = open(argv[2], O_RDWR | O_APPEND | O_CREAT, S_IRWXO | S_IRWXG | S_IRWXU);
         if (log_desc == -1) {
-            perror("BRUH!!!");
+            perror("log.txt doesn't open ");
+            return -1;
+        }
+        if (archive_desc == -1) {
+            perror("Could not create archive file");
             return -1;
         }
         //read - write || write to end || create it if needed, write/read/execute
@@ -183,7 +193,7 @@ int main(int argc, char* argv[]){
             strcat(path, "/");
             strcat(path, argv[4]);
             //inputting full adress of input
-            dir_copy(path, argv[2], log_desc);
+            dir_pack(path, 0);
         }
         else if (strcmp(argv[3], "-f") == 0) {
             //list of files
@@ -193,7 +203,7 @@ int main(int argc, char* argv[]){
             return -1;
         }
         if (close(log_desc) == -1) {
-            perror("DOUBLE BRUH!!!");
+            perror("log.txt doesn't close ");
             return -1;
         }
     }
@@ -202,6 +212,10 @@ int main(int argc, char* argv[]){
     }
     else {
         perror("Wrong command parameters");
+        return -1;
+    }
+    if (close(archive_desc) == -1) {
+        perror("Archive file didn't close");
         return -1;
     }
     return 0;

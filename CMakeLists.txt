@@ -7,6 +7,6 @@ add_executable(main main.c)
 
 set_target_properties(
     main PROPERTIES
-    C_VERSION 11
-    C_VERSION_REQUIREMENTS OFF
+    GCC_VERSION 11
+    GCC_VERSION_REQUIREMENTS ON
 )
