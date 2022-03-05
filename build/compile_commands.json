@@ -1,0 +1,7 @@
+[
+{
+  "directory": "/home/michael/Документы/OS/OS1/build",
+  "command": "/bin/x86_64-linux-gnu-gcc-9   -g   -o CMakeFiles/main.dir/main.c.o   -c /home/michael/Документы/OS/OS1/main.c",
+  "file": "/home/michael/Документы/OS/OS1/main.c"
+}
+]

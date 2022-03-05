@@ -14,7 +14,7 @@
 //sources: -d = directories / -f = files
 // options:  -create / -extract
 
-int file_copy(char * source, char * dest) {
+int file_copy(char * source, char * dest){
 	int src_desc, dst_desc, in, out;
 	if ((src_desc = open(source, O_RDONLY)) == -1) {
         char buf[PATH_MAX + 29] = "Could not open source file ";
@@ -23,7 +23,7 @@ int file_copy(char * source, char * dest) {
         perror(buf);
 		return -1;
 	}
-	if ((dst_desc = open(dest, O_WRONLY|O_CREAT|O_TRUNC , S_IRWXU)) == -1) {
+	if ((dst_desc = open(dest, O_WRONLY | O_CREAT | O_TRUNC , S_IRWXU)) == -1) {
 		close(src_desc);
         char buf[PATH_MAX + 34] = "Could not open destination file ";
         strcat(buf, source);
@@ -32,15 +32,15 @@ int file_copy(char * source, char * dest) {
 		return -1;
 	}
     char buf[BUFSIZ];
-    bool fail = false;
+    char fail = 0;
     ssize_t read_status, write_status;
     while ((read_status = read(src_desc, buf, BUFSIZ)) > 0) {
         if ((write_status = write(dst_desc, buf, BUFSIZ)) == -1) {
-            fail = true;
+            fail = 1;
             break;
         }
     }
-    if (read_status == -1) fail = true;
+    if (read_status == -1) fail = 1;
 	close(src_desc);
 	close(dst_desc);
 
@@ -61,7 +61,7 @@ void CutAdress(char* adr){
 //recursive for first realisation
 void dir_copy(char* from_ch, char* to_ch, int log_desc){
     struct stat st;
-    dirent *obj;
+    struct dirent *obj;
     DIR *origin, *subdir;
     char buf[20];
     if ((origin = opendir(from_ch)) == NULL) {
@@ -77,7 +77,7 @@ void dir_copy(char* from_ch, char* to_ch, int log_desc){
         return;
     }
     /*
-        логика: 
+        логика:
         гуляем при помощи chdir по архивным файлам, чтобы можно было без пота создавать новые объекты
         гуляем при помощи opendir и ПОЛНЫХ адресов по архивируемым директориям
     */
@@ -128,7 +128,7 @@ void dir_copy(char* from_ch, char* to_ch, int log_desc){
 }
 
 int main(int argc, char* argv[]){
-    bool create_flag;
+    char create_flag;
     char path[PATH_MAX];
     DIR *from;
     if (getcwd(path, PATH_MAX) == NULL) {
@@ -143,11 +143,17 @@ int main(int argc, char* argv[]){
         int i;
         if ((i = mkdir(argv[2], S_IRWXU | S_IRWXG | S_IROTH | S_IXOTH)) < 0) {
             //Read + Write + Execute: S_IRWXU (User), S_IRWXG (Group), S_IRWXO (Others)
-            perror("Could not create archive directory");
+            perror("Could not create archive");
             return -1;
         }
         if (chdir(argv[2]) < 0) perror("Can't change directory");
-        int log_desc = open("log.txt", O_RDWR || O_APPEND || O_CREAT, S_IRWXU);
+        char bruh[PATH_MAX];
+        strcpy(bruh, path);
+        int log_desc = open(strcat(bruh, "/log.txt"), O_RDWR | O_APPEND | O_CREAT | S_IRWXO);
+        if (log_desc == -1) {
+            perror("BRUH!!!");
+            return -1;
+        }
         //read - write || write to end || create it if needed, write/read/execute
         // date + ls
         time_t t = time(NULL);
@@ -186,11 +192,15 @@ int main(int argc, char* argv[]){
             perror("Wrong parameter for input");
             return -1;
         }
+        if (close(log_desc) == -1) {
+            perror("DOUBLE BRUH!!!");
+            return -1;
+        }
     }
-    else if (strcmp(argv[1], "-extract") == 0){
-
+    else if (strcmp(argv[1], "-extract") == 0) {
+        //
     }
-    else{
+    else {
         perror("Wrong command parameters");
         return -1;
     }
