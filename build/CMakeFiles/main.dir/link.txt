@@ -1,1 +1,1 @@
-/usr/bin/cc -rdynamic CMakeFiles/main.dir/main.c.o -o main 
+/usr/bin/cc   -rdynamic CMakeFiles/main.dir/main.c.o  -o main 
