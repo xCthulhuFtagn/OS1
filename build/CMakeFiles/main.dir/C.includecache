@@ -17,6 +17,10 @@ errno.h
 -
 time.h
 -
+stdint.h
+-
+stdbool.h
+-
 fcntl.h
 -
 sys/types.h
