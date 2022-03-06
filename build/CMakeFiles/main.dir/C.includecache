@@ -6,7 +6,7 @@
 
 #IncludeRegexTransform: 
 
-/home/michael/Документы/OS1/main.c
+/home/owner/Desktop/DEV/OS1/main.c
 stdio.h
 -
 string.h
