@@ -227,7 +227,6 @@ int pack(char* from_ch, char lvl){
         if ((src_desc = open(from_ch, O_RDONLY)) == -1) {
             char buf[PATH_MAX + 29] = "Could not open source file ";
             strcat(buf, from_ch);
-            strcat(buf, "\n");
             perror(buf);
             failure = true;
         }
@@ -235,7 +234,7 @@ int pack(char* from_ch, char lvl){
             char buf[BUFSIZ];
             ssize_t read_status, write_status;
             while ((read_status = read(src_desc, buf, BUFSIZ)) > 0) {
-                if ((write_status = write(archive_desc, buf, BUFSIZ)) == -1) {
+                if ((write_status = write(archive_desc, buf, read_status)) == -1) {
                     failure = true;
                     perror("Copying error occured");
                     break;
@@ -262,48 +261,89 @@ int unpack(char *to){
     char pr_lvl;
     char fname[PATH_MAX];
     chdir(to);
-    FILE* bruh = fdopen(archive_desc, O_RDONLY);
+    ssize_t rs = 0;
     do {
-        read(archive_desc, &lvl, sizeof(lvl));
-        read(archive_desc, &st, sizeof(struct stat));
-        fgets(fname, PATH_MAX, bruh);
-        if (S_ISDIR(st)) {
-            format_output(buf, lvl)
+        printf("b %s\n", to);
+        int i = 0;
+        rs = read(archive_desc, &lvl, sizeof(lvl));
+        if (rs == 0) break;
+        read(archive_desc, &st, sizeof(st));
+        for (; (rs = read(archive_desc, fname + i, sizeof(char))) > 0; ++i) {
+            if (fname[i] == '\n') {
+                fname[i] = '\0';
+                break;
+            }
+        }
+        if (fname[i] != 0) {
+            perror("Can't read information from archive");
+            return -1;
+        }
+        while (lvl < pr_lvl) {
+            chdir("..");
+            //mb NULL
+            *strrchr(to, '/') = '\0';
+        }
+        if (S_ISDIR(st.st_mode)) {
+            format_output(buf, lvl);
             strcat(buf, "Dir ");
             strcat(buf, fname);
             strcat(buf, " {\n");
+            printf("d %s\n", to);
             write(log_desc, buf, strlen(buf));
-            mkdir(fname, st.st_mode);
-            sprintf(to, "/%s", fname);
-            chdir(to);
+            if (mkdir(fname, st.st_mode) == -1) {
+                if (EEXIST == errno) {
+                    puts("Directory already exists");
+                }
+                else {
+                    char buf[40] = "Can't create directory ";
+                    strcat(buf, fname);
+                    perror(buf);
+                    failure = true;
+                    break;
+                }
+            }
+            chdir(fname);
+            sprintf(to + strlen(to), "/%s", fname);
             format_output(buf, lvl);
             if (failure) {
                 strcat(buf, "} FAILURE\n");
             }
-            else {
+            else { 
                 strcat(buf, "} SUCCESS\n");
             }
         }
         else {
-            while (lvl < pr_lvl) {
-                chdir("..");
-                //mb NULL
-                *strrchr(to, '/') = '\0';
-            }
-            sprintf(to, "/%s", fname);
-            int src_desc, dst_desc;
-            if ((src_desc = open(to, O_RDONLY, )) == -1) {
-                char buf[PATH_MAX + 29] = "Could not open source file ";
-                strcat(buf, to);
-                strcat(buf, "\n");
-                perror(buf);
-                failure = true;
+            format_output(buf, lvl);
+            sprintf(buf + strlen(buf), "File %s (%d) : ", fname, st.st_size);
+            //parse file
+            if (lvl > pr_lvl)
+                sprintf(to + strlen(to), "/%s", fname);
+            else
+                sprintf(strrchr(to, '/') + 1, fname);
+            int src_desc;
+            printf("f %s\n", to);
+            if ((src_desc = open(to, O_WRONLY | O_CREAT | O_EXCL | O_APPEND, st.st_mode)) == -1) {
+                if (errno == EEXIST) {
+                    puts("File already exists");
+                    failure = true;
+                    break;
+                }
+                else {
+                    char buf[PATH_MAX + 29] = "Cannot open source file ";
+                    puts(to);
+                    strcat(buf, fname);
+                    perror(buf);
+                    failure = true;
+                    break;
+                }
             }
             else {
-                char buf[BUFSIZ];
                 ssize_t read_status, write_status;
-                while ((read_status = read(archive_desc, buf, BUFSIZ)) > 0) {
-                    if ((write_status = write(src_desc, buf, BUFSIZ)) == -1) {
+                char buf[BUFSIZ];
+                ssize_t rest = st.st_size;
+                while ((read_status = read(archive_desc, buf, (BUFSIZ < rest ? BUFSIZ : rest))) > 0) {
+                    rest -= read_status;
+                    if ((write_status = write(src_desc, buf, read_status)) == -1 || read_status != write_status) {
                         failure = true;
                         perror("Copying error occured");
                         break;
@@ -315,21 +355,14 @@ int unpack(char *to){
                 }
             }
             close(src_desc);
-            format_output(buf, lvl)
-            strcat(buf, "File ");
-            strcat(buf, fname);
-            strcat(buf, "(");
-            sprintf(buf, "%d) : ", st.st_size);
-            //parse file
-            
             //status is ready, parsing is done
             if (failure) strcat(buf, "FAILURE\n");
-            else strcat(buf. "SUCCESS\n");
+            else strcat(buf, "SUCCESS\n");
             write(log_desc, buf, strlen(buf));
         }
         pr_lvl = lvl;
-    } while (!feof(bruh));
-    if(failure) return -1;
+    } while (true);
+    if (failure) return -1;
     return 0;
 }
 
@@ -379,6 +412,7 @@ int main(int argc, char* argv[]){
             perror("Could not open archive file");
             return -1;
         }
+        sprintf(path + lenpath, "/%s", argv[3]);
         if (mkdir(path, S_IRWXU | S_IRGRP | S_IWGRP) == -1) {
             if (EEXIST == errno) {
                 puts("This directory already exists");
@@ -388,7 +422,6 @@ int main(int argc, char* argv[]){
                 return -1;
             }
         }
-        strcat(path, argv[3]);
         unpack(path);
     }
     else {
