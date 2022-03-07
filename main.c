@@ -73,7 +73,7 @@ void sort_hash_tree(){
         printf("%hd - %lu\n", hash_tree.freqlet[i].let, hash_tree.freqlet[i].freq);
         sum += hash_tree.freqlet[i].freq;
     }
-    if (sum > 256 * 19) {
+    if (sum > 9 * 256 * 19) {
         puts("There is reason to archive");
     }
     else {
@@ -134,10 +134,13 @@ void sort_hash_tree(){
         else {
             tree_table.m[i_l] = hash_tree.letters[head->ind].let;
             ++i_l;
-            tree_table.m[i_l] = tail->len;
+            tree_table.m[i_l] = head->len;
             ++i_l;
-            for (y = 0; y < (tail->len + 7) / 8; ++y, ++i_l)
-                tree_table.m[i_l] = tail->code & (255 << (y * 8));
+            for (y = 0; y < ((tail->len + 7) >> 3); ++y, ++i_l)
+                tree_table.m[i_l] = tail->code & (255 << (y << 3));
+            struct q_node * del = head;
+            head = head->next;
+            free(del);
         }
     }
 }
@@ -164,8 +167,8 @@ int pack(char* from_ch, char lvl){
     sprintf(fnamen, "%s\n", fname);
     char buf[PATH_MAX + 200];
     if (lstat(from_ch, &st) == -1) {
-        perror("lstat broke");
-        char tmp[BUFSIZ] = "";
+        char tmp[PATH_MAX] = "Could not get info about ";
+        perror(strcat(tmp, fname));
         format_output(tmp, lvl);
         strcat(tmp, "Object ");
         strcat(tmp, fname);
@@ -220,10 +223,7 @@ int pack(char* from_ch, char lvl){
         //mb %d
         sprintf(output + strlen(output), "%ld", st.st_size);
         strcat(output, "): ");
-        write(archive_desc, &lvl, sizeof(lvl));
-        write(archive_desc, &st, sizeof(st));
-        write(archive_desc, fnamen, strlen(fnamen));
-        int src_desc, dst_desc, in, out;
+        int src_desc;
         if ((src_desc = open(from_ch, O_RDONLY)) == -1) {
             char buf[PATH_MAX + 29] = "Could not open source file ";
             strcat(buf, from_ch);
@@ -231,6 +231,9 @@ int pack(char* from_ch, char lvl){
             failure = true;
         }
         else {
+            write(archive_desc, &lvl, sizeof(lvl));
+            write(archive_desc, &st, sizeof(st));
+            write(archive_desc, fnamen, strlen(fnamen));
             char buf[BUFSIZ];
             ssize_t read_status, write_status;
             while ((read_status = read(src_desc, buf, BUFSIZ)) > 0) {
@@ -256,19 +259,17 @@ int pack(char* from_ch, char lvl){
 
 int unpack(char *to){
     bool failure = false;
+    bool dir_fail = false;
+    char dir_lvl = -1;
     struct stat st;
     char lvl, buf[BUFSIZ];
-    char pr_lvl;
+    short pr_lvl = -1;
     char fname[PATH_MAX];
-    chdir(to);
-    ssize_t rs = 0;
-    do {
-        printf("b %s\n", to);
+    //chdir(to);
+    while (read(archive_desc, &lvl, 1) == 1) {
         int i = 0;
-        rs = read(archive_desc, &lvl, sizeof(lvl));
-        if (rs == 0) break;
         read(archive_desc, &st, sizeof(st));
-        for (; (rs = read(archive_desc, fname + i, sizeof(char))) > 0; ++i) {
+        for (; read(archive_desc, fname + i, 1) == 1; ++i) {
             if (fname[i] == '\n') {
                 fname[i] = '\0';
                 break;
@@ -279,37 +280,51 @@ int unpack(char *to){
             return -1;
         }
         while (lvl < pr_lvl) {
-            chdir("..");
             //mb NULL
             *strrchr(to, '/') = '\0';
+            --pr_lvl;
         }
+        if (strcmp(strrchr(to, '/') + 1, ".") == 0 || strcmp(strrchr(to, '/') + 1, "..") == 0) continue;
         if (S_ISDIR(st.st_mode)) {
             format_output(buf, lvl);
             strcat(buf, "Dir ");
             strcat(buf, fname);
-            strcat(buf, " {\n");
-            printf("d %s\n", to);
-            write(log_desc, buf, strlen(buf));
-            if (mkdir(fname, st.st_mode) == -1) {
-                if (EEXIST == errno) {
-                    puts("Directory already exists");
+            if (dir_fail && lvl == dir_lvl + 1) {
+                failure = true;
+            }
+            else {
+                if (pr_lvl < lvl) {
+                    sprintf(to + strlen(to), "/%s", fname);
                 }
                 else {
-                    char buf[40] = "Can't create directory ";
-                    strcat(buf, fname);
-                    perror(buf);
-                    failure = true;
-                    break;
+                    sprintf(strrchr(to, '/') + 1, "%s", fname);
+                }
+                if (mkdir(to, st.st_mode) == -1) {
+                    if (EEXIST == errno) {
+                        printf("Directory %s already exists\n", fname);
+                    }
+                    else {
+                        char buf[40] = "Can't create directory ";
+                        strcat(buf, fname);
+                        perror(buf);
+                        failure = true;
+                    }
                 }
             }
-            chdir(fname);
-            sprintf(to + strlen(to), "/%s", fname);
-            format_output(buf, lvl);
             if (failure) {
-                strcat(buf, "} FAILURE\n");
+                strcat(buf, " - FAILURE\n");
             }
-            else { 
-                strcat(buf, "} SUCCESS\n");
+            else {
+                strcat(buf, " - SUCCESS\n");
+            }
+            write(log_desc, buf, strlen(buf));
+            dir_lvl = lvl;
+            if (failure) {
+                dir_fail = true;
+                continue;
+            }
+            else {
+                dir_fail = false;
             }
         }
         else {
@@ -321,47 +336,47 @@ int unpack(char *to){
             else
                 sprintf(strrchr(to, '/') + 1, fname);
             int src_desc;
-            printf("f %s\n", to);
-            if ((src_desc = open(to, O_WRONLY | O_CREAT | O_EXCL | O_APPEND, st.st_mode)) == -1) {
+            bool exist_crisis = false;
+            if (dir_fail && lvl == dir_lvl + 1) {
+                failure = true;
+            }
+            else if ((src_desc = open(to, O_WRONLY | O_CREAT | O_EXCL | O_APPEND, st.st_mode)) == -1) {
                 if (errno == EEXIST) {
-                    puts("File already exists");
-                    failure = true;
-                    break;
+                    exist_crisis = true;
+                    printf("File %s already exists\n", fname);
                 }
                 else {
                     char buf[PATH_MAX + 29] = "Cannot open source file ";
-                    puts(to);
                     strcat(buf, fname);
                     perror(buf);
                     failure = true;
+                }
+            }
+            ssize_t read_status, write_status;
+            char buf_file[BUFSIZ];
+            ssize_t rest = st.st_size;
+            while ((read_status = read(archive_desc, buf_file, (BUFSIZ < rest ? BUFSIZ : rest))) > 0) {
+                rest -= read_status;
+                if (!failure && !exist_crisis && ((write_status = write(src_desc, buf_file, read_status)) == -1 || read_status != write_status)) {
+                    failure = true;
+                    perror("Copying error occured");
                     break;
                 }
             }
-            else {
-                ssize_t read_status, write_status;
-                char buf[BUFSIZ];
-                ssize_t rest = st.st_size;
-                while ((read_status = read(archive_desc, buf, (BUFSIZ < rest ? BUFSIZ : rest))) > 0) {
-                    rest -= read_status;
-                    if ((write_status = write(src_desc, buf, read_status)) == -1 || read_status != write_status) {
-                        failure = true;
-                        perror("Copying error occured");
-                        break;
-                    }
-                }
-                if (read_status == -1) {
-                    failure = true;
-                    perror("Copying error occured");
-                }
+            if (read_status == -1) {
+                failure = true;
+                perror("Copying error occured");
+                break;
             }
-            close(src_desc);
+            if (!failure)
+                close(src_desc);
             //status is ready, parsing is done
             if (failure) strcat(buf, "FAILURE\n");
             else strcat(buf, "SUCCESS\n");
             write(log_desc, buf, strlen(buf));
         }
         pr_lvl = lvl;
-    } while (true);
+    }
     if (failure) return -1;
     return 0;
 }
